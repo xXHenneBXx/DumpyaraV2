@@ -23,7 +23,7 @@ LOGF() {
 }
 
 [[ $# = 0 ]] && \
-    LOGF "No input provided."
+    LOGF "No file provided."
 
 PWD="$(cd $(dirname ${BASH_SOURCE[0]}); pwd -P)"
 
@@ -96,7 +96,7 @@ if echo "${1}" | grep -e '^\(https\?\|ftp\)://.*$' > /dev/null; then
 
     aria2c -q -s16 -x16 --check-certificate=false "${URL}" || {
         rm -fv ./input/*
-        wget -q --no-check-certificate "${URL}" || LOGF "Failed to downlaod file. Aborting."
+        wget -q --no-check-certificate "${URL}" || LOGF "Failed to download file. Aborting."
     }
 
     LOGI "Finished downloading file. ($(date +%R:%S))"
@@ -118,7 +118,7 @@ else
     fi
 fi
 
-ORG=AndroidDumps #your GitHub org name
+ORG=xXHenneBXx # CHANGE TO YOUR OWN
 EXTENSION=$(echo "${INPUT##*.}" | inline-detox)
 UNZIP_DIR=$(basename ${INPUT/.$EXTENSION/})
 WORKING=${PWD}/working/${UNZIP_DIR}
@@ -138,8 +138,17 @@ fi
 if [[ -d "${PWD}/external/Firmware_extractor" ]]; then
     git -C "${PWD}"/external/Firmware_extractor pull --recurse-submodules --rebase
 else
-    LOGI "Cloning 'Fimrware_extractor' to 'external/'..."
+    LOGI "Cloning 'Firmware_extractor' to 'external/'..."
     git clone -q --recurse-submodules https://github.com/AndroidDumps/Firmware_extractor "${PWD}"/external/Firmware_extractor
+fi
+
+# Clone AIK (Android Image Kitchen)
+if [[ -d "${PWD}/external/AIK-Linux" ]]; then
+    git -C "${PWD}"/external/AIK-Linux pull --rebase
+else
+    LOGI "Cloning 'AIK-Linux' to 'external/'..."
+    git clone -q https://github.com/SebaUbuntu/AIK-Linux-mirror "${PWD}"/external/AIK-Linux
+    chmod +x "${PWD}"/external/AIK-Linux/*.sh
 fi
 
 # Extract input via 'Firmware_extractor'
@@ -153,6 +162,8 @@ if ! [[ -f "${PWD}"/external/extract-ikconfig ]]; then
 fi
 
 # Set path for tools
+AIK_PATH="${PWD}"/external/AIK-Linux
+UNPACKIMG="${PWD}"/external/AIK-Linux/unpackimg.sh
 UNPACKBOOTIMG="${PWD}"/external/Firmware_extractor/tools/unpackbootimg
 VMLINUX_TO_ELF="uvx -q --from git+https://github.com/marin-m/vmlinux-to-elf@master"
 EXTRACT_IKCONFIG="${PWD}"/external/extract-ikconfig
@@ -162,11 +173,7 @@ FSCK_EROFS="${PWD}"/external/Firmware_extractor/tools/fsck.erofs
 cd "${WORKING}" || exit
 
 # Create an array of partitions that need to be extracted
-PARTITIONS=(system systemex system_ext system_other vendor cust odm odm_ext oem factory 
-    product modem xrom oppo_product opproduct reserve india my_preload my_odm my_stock
-    my_operator my_country my_product my_company my_engineering my_heytap my_custom my_manifest my_carrier my_region 
-    my_bigball my_version special_preload vendor_dlkm odm_dlkm system_dlkm mi_ext radio
-    product_h preas preavs preload
+PARTITIONS=(l_agdsp l_deltanv l_fixnv1 l_fixnv2 l_gdsp l_ldsp l_modem mmcblk0boot1 super product odm pm_sys sdc sml system system_dlkm system_ext teecfg trustos uboot odm_ext odm_dlkm vbmeta vbmeta_odm vbmeta_product vbmeta_system vbmeta_system_ext vbmeta_vendor vendor vendor_dlkm
 )
 
 # Extract the images
@@ -174,13 +181,21 @@ LOGI "Extracting partitions..."
 for partition in "${PARTITIONS[@]}"; do
     # Proceed only if the image from 'PARTITIONS' array exists
     if [[ -f "${partition}".img ]]; then
-        # Try to extract file through '7z'
-        ${FSCK_EROFS} --extract="${partition}" "${partition}".img >> /dev/null 2>&1 || {
-                # Try to extract file through '7z'
-                7z -snld x "${partition}".img -y -o"${partition}"/ > /dev/null || {
-                LOGE "'${partition}' extraction via '7z' failed."
 
-                # Only abort if we're at the first occourence
+        # Check if the image is sparse
+        if grep -q "SPARSE" <(xxd -p -l 4 "${partition}".img); then
+            LOGI "'${partition}.img' is a sparse image. Converting to raw format..."
+            simg2img "${partition}".img "${partition}"_raw.img
+            mv "${partition}"_raw.img "${partition}".img
+        fi
+
+        # Try to extract using 'fsck.erofs' first
+        ${FSCK_EROFS} --extract="${partition}" "${partition}".img >> /dev/null 2>&1 || {
+            # If erofs extraction fails, try using 7z
+            7z -snl x "${partition}".img -y -o"${partition}"/ > /dev/null || {
+                LOGF "'${partition}' extraction via '7z' failed."
+            
+            # Abort if it's the first crucial partition
                 if [[ "${partition}" == "${PARTITIONS[0]}" ]]; then
                     LOGF "Aborting dumping considering it's a crucial partition."
                 fi
@@ -190,60 +205,81 @@ for partition in "${PARTITIONS[@]}"; do
         # Clean-up
         rm -f "${partition}".img
     fi
-done
+done 
 
 # Also extract 'fsg.mbn' from 'radio.img'
-if [ -f "fsg.mbn" ]; then
-    LOGI "Extracting 'fsg.mbn' via '7zz'..."
-    mkdir "radio/fsg"
+#if [ -f "fsg.mbn" ]; then
+#    LOGI "Extracting 'fsg.mbn' via '7zz'..."
+#    mkdir "radio/fsg"
+#
+#    # Thankfully, 'fsg.mbn' is a simple EXT2 partition
+#    7zz -snld x "fsg.mbn" -o"radio/fsg" > /dev/null
+#
+#    # Remove 'fsg.mbn'
+#    rm -rf "fsg.mbn"
+#fi
 
-    # Thankfully, 'fsg.mbn' is a simple EXT2 partition
-    7zz -snld x "fsg.mbn" -o"radio/fsg" > /dev/null
-
-    # Remove 'fsg.mbn'
-    rm -rf "fsg.mbn"
-fi
-
+# Define AIK extraction paths and boot Vendor_boot recovery
+AIK_SPLIT_IMG="${AIK_PATH}"/split_img
+AIK_RAMDISK="${AIK_PATH}"/ramdisk
+IMAGES=(boot vendor_boot)
 # Extract and decompile device-tree blobs
-for image in boot vendor_boot vendor_kernel_boot; do
+for image in "${IMAGES[@]}"; do
     if [[ -f "${image}".img ]]; then
         # Create working directories
-        mkdir -p "${image}/dtb" "${image}/dts"
+        mkdir -p "${image}/dtb" "${image}/dts" "${image}/ramdisk"
 
-        # Unpack image's content
-        LOGI "Extracting '${image}' content..."
-        ${UNPACKBOOTIMG} -i "${image}.img" -o "${image}/" > /dev/null || \
-            LOGE "Extraction via 'unpackbootimg' unsuccessful."
+        # Unpack image using AIK
+        LOGI "Extracting '${image}' using AIK..."
+        "${UNPACKIMG}" --nosudo "${image}.img" > /dev/null 2>&1
+        if [[ $? -eq 0 ]]; then
+            LOGI "'${image}' successfully unpacked!"
+        else
+            LOGE "Failed to unpack '${image}'."
+            continue
+        fi
 
-        ## Retrive image's ramdisk, and extract it
-        unlz4 "${image}"/"${image}".img-*ramdisk "${image}/ramdisk.lz4" >> /dev/null 2>&1
-        7z -snld x "${image}/ramdisk.lz4" -o"${image}/ramdisk" >> /dev/null 2>&1  || \
-            LOGI "Failed to extract ramdisk."
+        # Move the unpacked `split_img` and `ramdisk` to the correct directories
+        if [[ -d "${AIK_SPLIT_IMG}" && "$(ls -A ${AIK_SPLIT_IMG})" ]]; then
+          sudo mv "${AIK_SPLIT_IMG}"/* "${image}/" > /dev/null 2>&1 || LOGE "No files found in 'split_img' for '${image}'."
+        else
+            LOGE "No 'split_img' directory found for '${image}' or it's empty."
+        fi
 
-        ## Clean-up
-        rm -rf "${image}/ramdisk.lz4"
-        rm -rf "${image}/${image}".img-*ramdisk
+        if [[ -d "${AIK_RAMDISK}" && "$(ls -A ${AIK_RAMDISK})" ]]; then
+           sudo mv "${AIK_RAMDISK}"/* "${image}/ramdisk/" > /dev/null 2>&1 || LOGE "No files found in 'ramdisk' for '${image}'."
+        else
+            LOGE "No 'ramdisk' directory found for '${image}' or it's empty."
+        fi
 
-        # Extract 'dtb' via 'extract-dtb'
-        LOGI "Trying to extract device-tree(s) from '${image}'..." 
-        uvx extract-dtb "${image}.img" -o "${image}/dtb" >> /dev/null 2>&1 || \
-            LOGE "Failed to extract device-tree blobs."
+        # Cleanup AIK directory
+        rm -rf "${AIK_PATH}/ramdisk" "${AIK_PATH}/split_img"
+
+
+        ## Extract Device Tree (DTB) from boot image
+        if [[ -f "${image}".img ]]; then
+            LOGI "Extracting device-tree(s) from '${image}'..."
+            uvx extract-dtb "${image}".img -o"${image}"/dtb >> /dev/null 2>&1 || \
+                LOGF "Failed to extract device-tree blobs."
+        fi
 
         # Remove '00_kernel'
         rm -rf "${image}/dtb/00_kernel"
 
-        # Decompile blobs to 'dts' via 'dtc'
-        for dtb in $(find "${image}/dtb" -type f); do
-            dtc -q -I dtb -O dts "${dtb}" >> "${image}/dts/$(basename "${dtb}" | sed 's/\.dtb/.dts/')" || \
-                LOGE "Failed to decompile device-tree blobs."
+        # Decompile DTBs to DTS
+        for dtb in $(find "${image}/dtb" -type f -name "*.dtb" 2>/dev/null); do
+            dtc -q -I dtb -O dts "${dtb}" > "${image}/dts/$(basename "${dtb}" | sed 's/\.dtb/.dts/')" || \
+                LOGF "Failed to decompile device-tree blobs."
         done
-    fi
-
-    # If no device-tree were extracted or decompiled, delete the directories
-    if ! ls -A ${image}/dtb >> /dev/null 2>&1; then
-        rm -rf "${image}/dtb" "${image}/dts"
+        
+        
+        # If no DTBs were extracted, remove directories
+        if ! ls -A "${image}"s/dtb >> /dev/null 2>&1; then
+            rm -rf "${image}/dtb" "${image}/dts"
+        fi
     fi
 done
+
 
 # Extract 'boot.img'-related content
 if [[ -f boot.img ]]; then
@@ -270,7 +306,7 @@ if [[ -f dtbo.img ]]; then
     mkdir -p "dtbo/dts"
 
     # Extract 'dtb' via 'extract-dtb'
-    LOGI "Trying to extract device-tree(s) from 'dtbo'..." 
+    LOGI "Extracting device-tree(s) from 'dtbo'..." 
     uvx extract-dtb "dtbo.img" -o "dtbo/"  >> /dev/null 2>&1 || \
         LOGE "Failed to extract device-tree blobs."
 
@@ -279,11 +315,10 @@ if [[ -f dtbo.img ]]; then
 
     # Decompile blobs to 'dts' via 'dtc'
     for dtb in $(find "dtbo" -type f -name "*.dtb"); do
-        dtc -q -I dtb -O dts "${dtb}" >> "dtbo/dts/$(basename "${dtb}" | sed 's/\.dtb/.dts/')" || \
+        dtc -q -I dtb -O dts "${dtb}" > "dtbo/dts/$(basename "${dtb}" | sed 's/\.dtb/.dts/')" || \
             LOGE "Failed to decompile device-tree blobs."
     done
 fi
-
 # Generate 'board-info.txt'
 LOGI "Generating 'board-info.txt'..."
 
@@ -487,10 +522,10 @@ if [[ -n $GIT_OAUTH_TOKEN ]]; then
     curl --silent --fail "https://raw.githubusercontent.com/$ORG/$repo/$branch/all_files.txt" 2> /dev/null && echo "Firmware already dumped!" && exit 1
     git init
     if [[ -z "$(git config --get user.email)" ]]; then
-        git config user.email AndroidDumps@github.com
+        git config user.email edward.b.hennessey@gmail.com
     fi
     if [[ -z "$(git config --get user.name)" ]]; then
-        git config user.name AndroidDumps
+        git config user.name xXHenneBXx
     fi
     curl -s -X POST -H "Authorization: token ${GIT_OAUTH_TOKEN}" -d '{ "name": "'"$repo"'" }' "https://api.github.com/orgs/${ORG}/repos" #create new repo
     curl -s -X PUT -H "Authorization: token ${GIT_OAUTH_TOKEN}" -H "Accept: application/vnd.github.mercy-preview+json" -d '{ "names": ["'"$manufacturer"'","'"$platform"'","'"$top_codename"'"]}' "https://api.github.com/repos/${ORG}/${repo}/topics"
