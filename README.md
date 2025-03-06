@@ -11,6 +11,7 @@
 
       bash setup.sh
 **Note: This method is less secure as it leaves traces of your github token within terminal logs use .guthubtoken method**
+
 **Usage**:
 
       bash dumpyara.sh "<OTAlink> OR <OTA file path>" yourGithubToken 
