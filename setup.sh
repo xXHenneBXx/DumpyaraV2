@@ -43,7 +43,7 @@ if command -v apt > /dev/null 2>&1; then
     $sudo_cmd apt update > /dev/null 2>&1
 
     # Install required packages in form of a 'for' loop
-    for package in unace unrar zip unzip p7zip-full p7zip-rar sharutils rar uudeview mpack arj cabextract device-tree-compiler liblzma-dev python3-pip brotli liblz4-tool axel gawk aria2 detox cpio rename liblz4-dev curl ripgrep; do
+    for package in unace unrar zip unzip p7zip-full p7zip-rar sharutils rar uudeview mpack arj cabextract device-tree-compiler liblzma-dev python3-pip brotli liblz4-tool axel gawk aria2 detox cpio rename liblz4-dev curl; do
         LOGI "Installing '${package}'..."
         $sudo_cmd apt install  -y "${package}" > /dev/null 2>&1 || \
             LOGE "Failed installing '${package}'."
@@ -69,6 +69,19 @@ fi
 # Install 'uv' through pipx
 LOGI "Installing 'uv'..."
 curl -LsSf https://astral.sh/uv/install.sh | sh > /dev/null 2>&1 
+
+# Install Cargo (Rust package manager) if not installed
+LOGI "Installing Rust and Cargo..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+export PATH="$HOME/.cargo/bin:$PATH"
+    
+
+# Install ripgrep via cargo
+
+LOGI "Installing 'ripgrep' via Cargo..."
+cargo install ripgrep --force --features pcre2 | sh > /dev/null 2>&1
 
 # Finish
 LOGI "Set-up finished. You may now execute 'dumpyara.sh'."
