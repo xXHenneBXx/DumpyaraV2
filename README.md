@@ -10,7 +10,7 @@
 ***For setting up requirements***:
 
       bash setup.sh
-**Note: This method is less secure as it leaves traces of your github token within terminal logs use .guthubtoken method**
+**Note: This method is less secure as it leaves traces of your github token within terminal logs use .githubtoken method**
 
 **Usage**:
 
