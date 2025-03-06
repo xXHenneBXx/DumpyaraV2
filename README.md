@@ -10,10 +10,9 @@
 ***For setting up requirements***:
 
       bash setup.sh
-
+**Note: This method is less secure as it leaves traces of your github token within terminal logs use .guthubtoken method**
 **Usage**:
-    
-# Note: This method is less secure as it leaves traces of your github token within terminal logs use .guthubtoken method
+
       bash dumpyara.sh "<OTAlink> OR <OTA file path>" yourGithubToken 
 
 You can also place your github oauth token in a file called `.githubtoken` and telegram bot token in a file called `.tgtoken` in the root of this repository, if you wish it is ignored by git.  
